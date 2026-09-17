@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+dist/
+build/
+
+# Environment files
+.env
+.env.*
+
+# Secrets
+k8s/backend_secret.yml
+*.pem
+
+# Terraform
+terrafrom/.terraform/
+terrafrom/*.tfstate
+terrafrom/*.tfstate.backup
+terrafrom/.terraform.lock.hcl
+
+# Logs
+*.log
