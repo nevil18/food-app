@@ -19,3 +19,5 @@ terrafrom/.terraform.lock.hcl
 
 # Logs
 *.log
+backend/awscliv2.zip
+*.zip
