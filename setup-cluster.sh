@@ -82,9 +82,23 @@ kubectl wait --namespace cert-manager \
   --timeout=120s
 echo "✅ cert-manager installed"
 
-# ─── STEP 7: Apply K8s manifests ──────────────────────
+# ─── STEP 7: Install ArgoCD ───────────────────────────
 echo ""
-echo "=== Step 7: Applying Kubernetes manifests ==="
+echo "=== Step 7: Installing ArgoCD ==="
+kubectl create namespace argocd 2>/dev/null || true
+kubectl apply -n argocd \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml \
+  --server-side --force-conflicts
+echo "Waiting for ArgoCD pods..."
+kubectl wait --namespace argocd \
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/name=argocd-server \
+  --timeout=180s
+echo "✅ ArgoCD installed"
+
+# ─── STEP 8: Apply K8s manifests ──────────────────────
+echo ""
+echo "=== Step 8: Applying Kubernetes manifests ==="
 kubectl apply -f ~/web-dev/food_delivery/k8s/namespace.yml
 kubectl apply -f ~/web-dev/food_delivery/k8s/backend_secret.yml
 kubectl apply -f ~/web-dev/food_delivery/k8s/backend_deployment.yml
@@ -95,49 +109,53 @@ kubectl apply -f ~/web-dev/food_delivery/k8s/frontend_service.yml
 kubectl apply -f ~/web-dev/food_delivery/k8s/admin_service.yml
 echo "✅ Manifests applied"
 
-# ─── STEP 8: Apply HPA ────────────────────────────────
+# ─── STEP 9: Apply HPA ────────────────────────────────
 echo ""
-echo "=== Step 8: Applying HPA ==="
+echo "=== Step 9: Applying HPA ==="
 kubectl apply -f ~/web-dev/food_delivery/k8s/backend_hpa.yml
 kubectl apply -f ~/web-dev/food_delivery/k8s/frontend_hpa.yml
 kubectl apply -f ~/web-dev/food_delivery/k8s/admin_hpa.yml
 echo "✅ HPA applied"
 
-# ─── STEP 9: Apply ClusterIssuer ──────────────────────
+# ─── STEP 10: Apply ClusterIssuer ─────────────────────
 echo ""
-echo "=== Step 9: Applying ClusterIssuer ==="
+echo "=== Step 10: Applying ClusterIssuer ==="
 kubectl apply -f ~/web-dev/food_delivery/k8s/cert_manager.yml
 echo "✅ ClusterIssuer applied"
 
-# ─── STEP 10: Apply Ingress ───────────────────────────
+# ─── STEP 11: Apply Ingress ───────────────────────────
 echo ""
-echo "=== Step 10: Applying Ingress ==="
+echo "=== Step 11: Applying Ingress ==="
 kubectl delete -A ValidatingWebhookConfiguration ingress-nginx-admission 2>/dev/null || true
 kubectl apply -f ~/web-dev/food_delivery/k8s/ingress.yml
+kubectl apply -f ~/web-dev/food_delivery/k8s/argocd-ingress.yml
 echo "✅ Ingress applied"
 
-# ─── STEP 11: Get Load Balancer DNS ───────────────────
+# ─── STEP 12: Get Load Balancer DNS ───────────────────
 echo ""
-echo "=== Step 11: Getting Load Balancer DNS ==="
+echo "=== Step 12: Getting Load Balancer DNS ==="
 sleep 30
 LB_DNS=$(kubectl get svc ingress-nginx-controller \
   -n ingress-nginx \
   -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
 echo "✅ Load Balancer DNS: $LB_DNS"
 
-# ─── STEP 12: Restart backend ─────────────────────────
+# ─── STEP 13: Restart backend ─────────────────────────
 echo ""
-echo "=== Step 12: Restarting backend ==="
+echo "=== Step 13: Restarting backend ==="
 kubectl rollout restart deployment backend-deployment -n food
 echo "✅ Backend restarted"
 
-# ─── STEP 13: Verify ──────────────────────────────────
+# ─── STEP 14: Verify ──────────────────────────────────
 echo ""
-echo "=== Step 13: Verifying ==="
+echo "=== Step 14: Verifying ==="
 kubectl get pods -n food
+kubectl get pods -n argocd
 kubectl get hpa -n food
 kubectl get ingress -n food
+kubectl get ingress -n argocd
 kubectl get certificate -n food
+kubectl get certificate -n argocd
 
 echo ""
 echo "================================================"
@@ -146,15 +164,16 @@ echo "================================================"
 echo "Frontend : https://food.nevilanghan.me"
 echo "Admin    : https://food.nevilanghan.me/admin"
 echo "API      : https://food.nevilanghan.me/api/food/list"
+echo "ArgoCD   : https://argocd.nevilanghan.me"
 echo ""
-echo "⚠️  IMPORTANT: Update DNS Record in Namecheap"
+echo "⚠️  IMPORTANT: Update DNS Records in Namecheap"
 echo "================================================"
 echo "Go to: Namecheap → nevilanghan.me → Advanced DNS"
-echo "Update CNAME record:"
-echo "  Name:  food"
-echo "  Value: $LB_DNS"
+echo "Update CNAME records:"
+echo "  Name: food    Value: $LB_DNS"
+echo "  Name: argocd  Value: $LB_DNS"
 echo "================================================"
 echo ""
-echo "After DNS update, wait 5-10 mins then verify:"
-echo "nslookup food.nevilanghan.me 8.8.8.8"
+echo "After DNS update run:"
+echo "  ~/web-dev/argocd-setup.sh"
 echo "================================================"
