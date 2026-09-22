@@ -50,12 +50,28 @@ argocd login argocd.nevilanghan.me \
   --grpc-web
 echo "✅ Logged in successfully"
 
-# ─── STEP 5: Allow cluster resources ──────────────────
+# ─── STEP 5: Create project ───────────────────────────
 echo ""
-echo "=== Step 5: Allowing cluster resources ==="
+echo "=== Step 5: Creating ArgoCD project ==="
+argocd proj create food-delivery \
+  --description "Food Delivery App" \
+  --grpc-web 2>/dev/null || true
+
+# Add source repo
+argocd proj add-source food-delivery \
+  https://github.com/nevil18/food-app.git \
+  --grpc-web 2>/dev/null || true
+
+# Add destination
+argocd proj add-destination food-delivery \
+  https://kubernetes.default.svc \
+  food \
+  --grpc-web 2>/dev/null || true
+
+# Allow cluster resources
 argocd proj allow-cluster-resource food-delivery "*" "*" \
   --grpc-web 2>/dev/null || true
-echo "✅ Cluster resources allowed"
+echo "✅ Project configured"
 
 # ─── STEP 6: Add GitHub repo ──────────────────────────
 echo ""
@@ -73,6 +89,7 @@ argocd app create fooddelivery \
   --path k8s \
   --dest-server https://kubernetes.default.svc \
   --dest-namespace food \
+  --project food-delivery \
   --sync-policy automated \
   --auto-prune \
   --self-heal \
@@ -90,7 +107,6 @@ echo "✅ Application synced"
 echo ""
 echo "=== Step 9: Verifying ==="
 argocd app list --grpc-web
-argocd app get fooddelivery --grpc-web
 
 echo ""
 echo "================================================"
