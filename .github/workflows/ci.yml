@@ -13,9 +13,11 @@ on:
     paths-ignore:
       - 'k8s/**'
 
+
 permissions:
   contents: read
   pull-requests: read
+
 
 env:
   AWS_REGION: ap-south-1
@@ -25,11 +27,11 @@ env:
   ECR_ADMIN: food-delivery-admin
 
 
-# ============================================================
-# 1. SONARQUBE
-# ============================================================
-
 jobs:
+
+  # ============================================================
+  # 1. SONARQUBE
+  # ============================================================
 
   sonarqube:
     name: SonarQube Analysis
@@ -47,6 +49,10 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
+        with:
+          args: >
+            -Dsonar.projectKey=food-app
+            -Dsonar.organization=nevil18
 
 
   # ============================================================
@@ -97,12 +103,16 @@ jobs:
 
     steps:
 
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Detect changed paths
         id: filter
         uses: dorny/paths-filter@v4
         with:
           filters: |
-
             backend:
               - 'backend/**'
 
@@ -150,9 +160,9 @@ jobs:
             backend/
 
 
-      # -------------------------------
-      # TRIVY SECURITY SCAN
-      # -------------------------------
+      # --------------------------------------------------------
+      # TRIVY
+      # --------------------------------------------------------
 
       - name: Trivy scan backend
         uses: aquasecurity/trivy-action@v0.36.0
@@ -165,9 +175,9 @@ jobs:
           vuln-type: os,library
 
 
-      # -------------------------------
+      # --------------------------------------------------------
       # AWS
-      # -------------------------------
+      # --------------------------------------------------------
 
       - name: Configure AWS credentials
         if: github.event_name == 'push'
@@ -235,9 +245,9 @@ jobs:
             frontend/
 
 
-      # -------------------------------
-      # TRIVY SECURITY SCAN
-      # -------------------------------
+      # --------------------------------------------------------
+      # TRIVY
+      # --------------------------------------------------------
 
       - name: Trivy scan frontend
         uses: aquasecurity/trivy-action@v0.36.0
@@ -250,9 +260,9 @@ jobs:
           vuln-type: os,library
 
 
-      # -------------------------------
+      # --------------------------------------------------------
       # AWS
-      # -------------------------------
+      # --------------------------------------------------------
 
       - name: Configure AWS credentials
         if: github.event_name == 'push'
@@ -320,9 +330,9 @@ jobs:
             admin/
 
 
-      # -------------------------------
-      # TRIVY SECURITY SCAN
-      # -------------------------------
+      # --------------------------------------------------------
+      # TRIVY
+      # --------------------------------------------------------
 
       - name: Trivy scan admin
         uses: aquasecurity/trivy-action@v0.36.0
@@ -335,9 +345,9 @@ jobs:
           vuln-type: os,library
 
 
-      # -------------------------------
+      # --------------------------------------------------------
       # AWS
-      # -------------------------------
+      # --------------------------------------------------------
 
       - name: Configure AWS credentials
         if: github.event_name == 'push'
@@ -463,9 +473,9 @@ jobs:
           fi
 
 
-      # ========================================================
+      # --------------------------------------------------------
       # COMMIT KUBERNETES CHANGES
-      # ========================================================
+      # --------------------------------------------------------
 
       - name: Commit Kubernetes changes
         run: |
