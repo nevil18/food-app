@@ -3,36 +3,31 @@ kind: Deployment
 metadata:
   name: backend-deployment
   namespace: food
-
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: backend
-
   template:
     metadata:
       labels:
         app: backend
-
+      annotations:
+        ci.github.com/revision: ba68ab00fd950ffc9a954eec59921dbccf954b53
     spec:
       containers:
-      - name: backend
-        image: 841702866815.dkr.ecr.ap-south-1.amazonaws.com/food-delivery-backend:latest
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 4000
-        envFrom: 
-        - secretRef:
-            name: backend-secret   
-  
-        resources:
-          requests:
-            cpu: "100m"
-            memory: "128Mi"
-          limits:
-            cpu: "200m"
-            memory: "256Mi"
-
-
-
+        - name: backend
+          image: 841702866815.dkr.ecr.ap-south-1.amazonaws.com/food-delivery-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4000
+          envFrom:
+            - secretRef:
+                name: backend-secret
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
