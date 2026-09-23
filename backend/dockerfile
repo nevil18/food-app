@@ -2,6 +2,10 @@ FROM node:22-alpine
 
 WORKDIR /app
 
+RUN npm install -g npm@11.18.0 \
+    && node --version \
+    && npm --version
+
 # Create non-root group and user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
