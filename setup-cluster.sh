@@ -128,7 +128,7 @@ echo ""
 echo "=== Step 11: Applying Ingress ==="
 kubectl delete -A ValidatingWebhookConfiguration ingress-nginx-admission 2>/dev/null || true
 kubectl apply -f ~/web-dev/food_delivery/k8s/ingress.yml
-kubectl apply -f ~/web-dev/food_delivery/k8s/argocd-ingress.yml
+kubectl apply -f ~/web-dev/food_delivery/argocd/argocd-ingress.yml
 echo "✅ Ingress applied"
 
 # ─── STEP 12: Get Load Balancer DNS ───────────────────
