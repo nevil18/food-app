@@ -3,35 +3,28 @@ kind: Deployment
 metadata:
   name: frontend-deployment
   namespace: food
-
 spec:
-  replicas: 1 
+  replicas: 1
   selector:
     matchLabels:
       app: frontend
-
   template:
     metadata:
       labels:
         app: frontend
-
+      annotations:
+        ci.github.com/revision: 0192420dfcffd76b43dd23500ba9fa3c97f53bf0
     spec:
       containers:
-      - name: frontend
-        image: 841702866815.dkr.ecr.ap-south-1.amazonaws.com/food-delivery-frontend:latest
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 80
-
-        resources:
-          requests:
-            cpu: "100m"
-            memory: "128Mi"
-          limits:
-            cpu: "200m"
-            memory: "256Mi"
-
-
-
-
-
+        - name: frontend
+          image: 841702866815.dkr.ecr.ap-south-1.amazonaws.com/food-delivery-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"

@@ -13,7 +13,7 @@ spec:
       labels:
         app: backend
       annotations:
-        ci.github.com/revision: ba68ab00fd950ffc9a954eec59921dbccf954b53
+        ci.github.com/revision: 0192420dfcffd76b43dd23500ba9fa3c97f53bf0
     spec:
       containers:
         - name: backend
