@@ -60,7 +60,7 @@ const Add = ({url}) => {
             />
         </div>
         <div className="add-product-name flex-col">
-            <p>Product name</p>
+            <p>Product Name</p>
             <input onChange={onchangehandler} value={data.name} type="text" name="name" id="" placeholder='Type here'/>
         </div>
         <div className="add-product-description flex-col">
