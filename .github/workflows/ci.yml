@@ -13,11 +13,9 @@ on:
     paths-ignore:
       - 'k8s/**'
 
-
 permissions:
   contents: read
   pull-requests: read
-
 
 env:
   AWS_REGION: ap-south-1
@@ -26,26 +24,26 @@ env:
   ECR_FRONTEND: food-delivery-frontend
   ECR_ADMIN: food-delivery-admin
 
+  IMAGE_TAG: latest
 
 jobs:
 
-  # ============================================================
-  # 1. SONARQUBE
-  # ============================================================
+  # =========================================================
+  # SONARQUBE
+  # =========================================================
 
   sonarqube:
     name: SonarQube Analysis
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@master
+        uses: SonarSource/sonarqube-scan-action@v8.2.2
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
@@ -55,18 +53,17 @@ jobs:
             -Dsonar.organization=nevil18
 
 
-  # ============================================================
-  # 2. OWASP DEPENDENCY CHECK
-  # ============================================================
+  # =========================================================
+  # OWASP DEPENDENCY CHECK
+  # =========================================================
 
   owasp:
     name: OWASP Dependency Check
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run OWASP Dependency Check
         uses: dependency-check/Dependency-Check_Action@main
@@ -81,16 +78,17 @@ jobs:
             --disableAssembly
 
       - name: Upload OWASP report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: owasp-dependency-report
           path: reports/
+          if-no-files-found: warn
 
 
-  # ============================================================
-  # 3. DETECT CHANGED SERVICES
-  # ============================================================
+  # =========================================================
+  # DETECT CHANGED SERVICES
+  # =========================================================
 
   changes:
     name: Detect Changed Services
@@ -102,9 +100,8 @@ jobs:
       admin: ${{ steps.filter.outputs.admin }}
 
     steps:
-
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -115,17 +112,15 @@ jobs:
           filters: |
             backend:
               - 'backend/**'
-
             frontend:
               - 'frontend/**'
-
             admin:
               - 'admin/**'
 
 
-  # ============================================================
-  # 4. BACKEND
-  # ============================================================
+  # =========================================================
+  # BACKEND
+  # =========================================================
 
   backend:
     name: Backend Build + Trivy + ECR
@@ -138,46 +133,26 @@ jobs:
 
     if: needs.changes.outputs.backend == 'true'
 
-    outputs:
-      image-tag: ${{ steps.tag.outputs.tag }}
-
     steps:
-
       - name: Checkout code
-        uses: actions/checkout@v4
-
-
-      - name: Generate image tag
-        id: tag
-        run: |
-          echo "tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-
+        uses: actions/checkout@v6
 
       - name: Build backend Docker image
         run: |
           docker build \
-            -t food-backend:${GITHUB_SHA} \
+            --pull \
+            -t food-backend:${IMAGE_TAG} \
             backend/
-
-
-      # --------------------------------------------------------
-      # TRIVY
-      # --------------------------------------------------------
 
       - name: Trivy scan backend
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: food-backend:${{ steps.tag.outputs.tag }}
+          image-ref: food-backend:latest
           format: table
           exit-code: '1'
           ignore-unfixed: true
           severity: CRITICAL,HIGH
           vuln-type: os,library
-
-
-      # --------------------------------------------------------
-      # AWS
-      # --------------------------------------------------------
 
       - name: Configure AWS credentials
         if: github.event_name == 'push'
@@ -187,30 +162,27 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-
       - name: Login to Amazon ECR
         if: github.event_name == 'push'
         uses: aws-actions/amazon-ecr-login@v2
-
 
       - name: Tag backend image for ECR
         if: github.event_name == 'push'
         run: |
           docker tag \
-            food-backend:${{ steps.tag.outputs.tag }} \
-            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_BACKEND }}:${{ steps.tag.outputs.tag }}
-
+            food-backend:latest \
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_BACKEND }}:latest
 
       - name: Push backend image to ECR
         if: github.event_name == 'push'
         run: |
           docker push \
-            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_BACKEND }}:${{ steps.tag.outputs.tag }}
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_BACKEND }}:latest
 
 
-  # ============================================================
-  # 5. FRONTEND
-  # ============================================================
+  # =========================================================
+  # FRONTEND
+  # =========================================================
 
   frontend:
     name: Frontend Build + Trivy + ECR
@@ -223,46 +195,26 @@ jobs:
 
     if: needs.changes.outputs.frontend == 'true'
 
-    outputs:
-      image-tag: ${{ steps.tag.outputs.tag }}
-
     steps:
-
       - name: Checkout code
-        uses: actions/checkout@v4
-
-
-      - name: Generate image tag
-        id: tag
-        run: |
-          echo "tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-
+        uses: actions/checkout@v6
 
       - name: Build frontend Docker image
         run: |
           docker build \
-            -t food-frontend:${GITHUB_SHA} \
+            --pull \
+            -t food-frontend:${IMAGE_TAG} \
             frontend/
-
-
-      # --------------------------------------------------------
-      # TRIVY
-      # --------------------------------------------------------
 
       - name: Trivy scan frontend
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: food-frontend:${{ steps.tag.outputs.tag }}
+          image-ref: food-frontend:latest
           format: table
           exit-code: '1'
           ignore-unfixed: true
           severity: CRITICAL,HIGH
           vuln-type: os,library
-
-
-      # --------------------------------------------------------
-      # AWS
-      # --------------------------------------------------------
 
       - name: Configure AWS credentials
         if: github.event_name == 'push'
@@ -272,30 +224,27 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-
       - name: Login to Amazon ECR
         if: github.event_name == 'push'
         uses: aws-actions/amazon-ecr-login@v2
-
 
       - name: Tag frontend image for ECR
         if: github.event_name == 'push'
         run: |
           docker tag \
-            food-frontend:${{ steps.tag.outputs.tag }} \
-            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_FRONTEND }}:${{ steps.tag.outputs.tag }}
-
+            food-frontend:latest \
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_FRONTEND }}:latest
 
       - name: Push frontend image to ECR
         if: github.event_name == 'push'
         run: |
           docker push \
-            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_FRONTEND }}:${{ steps.tag.outputs.tag }}
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_FRONTEND }}:latest
 
 
-  # ============================================================
-  # 6. ADMIN
-  # ============================================================
+  # =========================================================
+  # ADMIN
+  # =========================================================
 
   admin:
     name: Admin Build + Trivy + ECR
@@ -308,46 +257,26 @@ jobs:
 
     if: needs.changes.outputs.admin == 'true'
 
-    outputs:
-      image-tag: ${{ steps.tag.outputs.tag }}
-
     steps:
-
       - name: Checkout code
-        uses: actions/checkout@v4
-
-
-      - name: Generate image tag
-        id: tag
-        run: |
-          echo "tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-
+        uses: actions/checkout@v6
 
       - name: Build admin Docker image
         run: |
           docker build \
-            -t food-admin:${GITHUB_SHA} \
+            --pull \
+            -t food-admin:${IMAGE_TAG} \
             admin/
-
-
-      # --------------------------------------------------------
-      # TRIVY
-      # --------------------------------------------------------
 
       - name: Trivy scan admin
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: food-admin:${{ steps.tag.outputs.tag }}
+          image-ref: food-admin:latest
           format: table
           exit-code: '1'
           ignore-unfixed: true
           severity: CRITICAL,HIGH
           vuln-type: os,library
-
-
-      # --------------------------------------------------------
-      # AWS
-      # --------------------------------------------------------
 
       - name: Configure AWS credentials
         if: github.event_name == 'push'
@@ -357,33 +286,30 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-
       - name: Login to Amazon ECR
         if: github.event_name == 'push'
         uses: aws-actions/amazon-ecr-login@v2
-
 
       - name: Tag admin image for ECR
         if: github.event_name == 'push'
         run: |
           docker tag \
-            food-admin:${{ steps.tag.outputs.tag }} \
-            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_ADMIN }}:${{ steps.tag.outputs.tag }}
-
+            food-admin:latest \
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_ADMIN }}:latest
 
       - name: Push admin image to ECR
         if: github.event_name == 'push'
         run: |
           docker push \
-            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_ADMIN }}:${{ steps.tag.outputs.tag }}
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_ADMIN }}:latest
 
 
-  # ============================================================
-  # 7. UPDATE KUBERNETES MANIFESTS
-  # ============================================================
+  # =========================================================
+  # UPDATE KUBERNETES
+  # =========================================================
 
   update-k8s:
-    name: Update Kubernetes Image Tags
+    name: Update Kubernetes Images
     runs-on: ubuntu-latest
 
     needs:
@@ -418,82 +344,82 @@ jobs:
       contents: write
 
     steps:
-
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
+      - name: Install yq
+        run: |
+          sudo wget -q \
+            https://github.com/mikefarah/yq/releases/download/v4.53.6/yq_linux_amd64 \
+            -O /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
 
       - name: Update Kubernetes image tags
         env:
           ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
           REGION: ${{ env.AWS_REGION }}
-
           BACKEND_CHANGED: ${{ needs.changes.outputs.backend }}
           FRONTEND_CHANGED: ${{ needs.changes.outputs.frontend }}
           ADMIN_CHANGED: ${{ needs.changes.outputs.admin }}
-
-          BACKEND_TAG: ${{ needs.backend.outputs.image-tag }}
-          FRONTEND_TAG: ${{ needs.frontend.outputs.image-tag }}
-          ADMIN_TAG: ${{ needs.admin.outputs.image-tag }}
+          GITHUB_SHA_VALUE: ${{ github.sha }}
 
         run: |
 
           if [ "$BACKEND_CHANGED" = "true" ]; then
+            echo "Updating backend..."
 
-            echo "Updating backend Kubernetes image..."
-
-            sed -i \
-              "s|image: $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/food-delivery-backend:.*|image: $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/food-delivery-backend:$BACKEND_TAG|" \
+            yq -i \
+              '.spec.template.spec.containers[].image = strenv(ACCOUNT) + ".dkr.ecr." + strenv(REGION) + ".amazonaws.com/food-delivery-backend:latest"' \
               k8s/backend_deployment.yml
 
+            yq -i \
+              '.spec.template.metadata.annotations."ci.github.com/revision" = strenv(GITHUB_SHA_VALUE)' \
+              k8s/backend_deployment.yml
           fi
-
 
           if [ "$FRONTEND_CHANGED" = "true" ]; then
+            echo "Updating frontend..."
 
-            echo "Updating frontend Kubernetes image..."
-
-            sed -i \
-              "s|image: $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/food-delivery-frontend:.*|image: $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/food-delivery-frontend:$FRONTEND_TAG|" \
+            yq -i \
+              '.spec.template.spec.containers[].image = strenv(ACCOUNT) + ".dkr.ecr." + strenv(REGION) + ".amazonaws.com/food-delivery-frontend:latest"' \
               k8s/frontend_deployment.yml
 
+            yq -i \
+              '.spec.template.metadata.annotations."ci.github.com/revision" = strenv(GITHUB_SHA_VALUE)' \
+              k8s/frontend_deployment.yml
           fi
-
 
           if [ "$ADMIN_CHANGED" = "true" ]; then
+            echo "Updating admin..."
 
-            echo "Updating admin Kubernetes image..."
-
-            sed -i \
-              "s|image: $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/food-delivery-admin:.*|image: $ACCOUNT.dkr.ecr.$REGION.amazonaws.com/food-delivery-admin:$ADMIN_TAG|" \
+            yq -i \
+              '.spec.template.spec.containers[].image = strenv(ACCOUNT) + ".dkr.ecr." + strenv(REGION) + ".amazonaws.com/food-delivery-admin:latest"' \
               k8s/admin_deployment.yml
 
+            yq -i \
+              '.spec.template.metadata.annotations."ci.github.com/revision" = strenv(GITHUB_SHA_VALUE)' \
+              k8s/admin_deployment.yml
           fi
 
-
-      # --------------------------------------------------------
-      # COMMIT KUBERNETES CHANGES
-      # --------------------------------------------------------
+      - name: Show Kubernetes changes
+        run: |
+          git diff -- k8s/
 
       - name: Commit Kubernetes changes
         run: |
-
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
 
           git add k8s/
 
           if git diff --staged --quiet; then
-
             echo "No Kubernetes manifest changes."
-
           else
-
             git commit \
-              -m "ci: update image tags to ${GITHUB_SHA}"
+              -m "ci: deploy latest images ${GITHUB_SHA}"
 
             git push
-
           fi
