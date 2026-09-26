@@ -13,7 +13,7 @@ spec:
       labels:
         app: admin
       annotations:
-        ci.github.com/revision: 0192420dfcffd76b43dd23500ba9fa3c97f53bf0
+        ci.github.com/revision: 265982f9c94b75776e4460cc7bd88f9c8560050b
     spec:
       containers:
         - name: admin
