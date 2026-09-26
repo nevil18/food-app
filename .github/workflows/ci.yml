@@ -140,7 +140,6 @@ jobs:
         run: |
           docker build \
             --pull \
-            --no-cache \
             -t food-backend:${IMAGE_TAG} \
             backend/
       - name: Trivy scan backend
@@ -170,10 +169,15 @@ jobs:
         run: |
           docker tag \
             food-backend:latest \
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_BACKEND }}:${{ github.sha }}
+          docker tag \
+            food-backend:latest \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_BACKEND }}:latest
       - name: Push backend image to ECR
         if: github.event_name == 'push'
         run: |
+          docker push \
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_BACKEND }}:${{ github.sha }}
           docker push \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_BACKEND }}:latest
   # =========================================================
@@ -199,7 +203,6 @@ jobs:
         run: |
           docker build \
             --pull \
-            --no-cache \
             -t food-frontend:${IMAGE_TAG} \
             frontend/
       - name: Trivy scan frontend
@@ -229,10 +232,15 @@ jobs:
         run: |
           docker tag \
             food-frontend:latest \
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_FRONTEND }}:${{ github.sha }}
+          docker tag \
+            food-frontend:latest \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_FRONTEND }}:latest
       - name: Push frontend image to ECR
         if: github.event_name == 'push'
         run: |
+          docker push \
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_FRONTEND }}:${{ github.sha }}
           docker push \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_FRONTEND }}:latest
   # =========================================================
@@ -258,7 +266,6 @@ jobs:
         run: |
           docker build \
             --pull \
-            --no-cache \
             -t food-admin:${IMAGE_TAG} \
             admin/
       - name: Trivy scan admin
@@ -270,7 +277,7 @@ jobs:
           ignore-unfixed: true
           severity: CRITICAL,HIGH
           vuln-type: os,library
-          trivyignores: admin/.trivyignore
+
       - name: Configure AWS credentials
         if: github.event_name == 'push'
         uses: aws-actions/configure-aws-credentials@v4
@@ -288,10 +295,15 @@ jobs:
         run: |
           docker tag \
             food-admin:latest \
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_ADMIN }}:${{ github.sha }}
+          docker tag \
+            food-admin:latest \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_ADMIN }}:latest
       - name: Push admin image to ECR
         if: github.event_name == 'push'
         run: |
+          docker push \
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_ADMIN }}:${{ github.sha }}
           docker push \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_ADMIN }}:latest
   # =========================================================
@@ -358,7 +370,7 @@ jobs:
           if [ "$BACKEND_CHANGED" = "true" ]; then
             echo "Updating backend..."
             yq -i \
-              '.spec.template.spec.containers[].image = strenv(ACCOUNT) + ".dkr.ecr." + strenv(REGION) + ".amazonaws.com/food-delivery-backend:latest"' \
+              '.spec.template.spec.containers[].image = strenv(ACCOUNT) + ".dkr.ecr." + strenv(REGION) + ".amazonaws.com/food-delivery-backend:" + strenv(GITHUB_SHA_VALUE)' \
               k8s/backend_deployment.yml
             yq -i \
               '.spec.template.metadata.annotations."ci.github.com/revision" = strenv(GITHUB_SHA_VALUE)' \
@@ -367,7 +379,7 @@ jobs:
           if [ "$FRONTEND_CHANGED" = "true" ]; then
             echo "Updating frontend..."
             yq -i \
-              '.spec.template.spec.containers[].image = strenv(ACCOUNT) + ".dkr.ecr." + strenv(REGION) + ".amazonaws.com/food-delivery-frontend:latest"' \
+              '.spec.template.spec.containers[].image = strenv(ACCOUNT) + ".dkr.ecr." + strenv(REGION) + ".amazonaws.com/food-delivery-frontend:" + strenv(GITHUB_SHA_VALUE)' \
               k8s/frontend_deployment.yml
             yq -i \
               '.spec.template.metadata.annotations."ci.github.com/revision" = strenv(GITHUB_SHA_VALUE)' \
@@ -376,7 +388,7 @@ jobs:
           if [ "$ADMIN_CHANGED" = "true" ]; then
             echo "Updating admin..."
             yq -i \
-              '.spec.template.spec.containers[].image = strenv(ACCOUNT) + ".dkr.ecr." + strenv(REGION) + ".amazonaws.com/food-delivery-admin:latest"' \
+              '.spec.template.spec.containers[].image = strenv(ACCOUNT) + ".dkr.ecr." + strenv(REGION) + ".amazonaws.com/food-delivery-admin:" + strenv(GITHUB_SHA_VALUE)' \
               k8s/admin_deployment.yml
             yq -i \
               '.spec.template.metadata.annotations."ci.github.com/revision" = strenv(GITHUB_SHA_VALUE)' \
@@ -394,6 +406,6 @@ jobs:
             echo "No Kubernetes manifest changes."
           else
             git commit \
-              -m "ci: deploy latest images ${GITHUB_SHA}"
+              -m "ci: deploy image ${GITHUB_SHA}"
             git push
           fi
