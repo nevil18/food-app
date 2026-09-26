@@ -270,7 +270,7 @@ jobs:
           ignore-unfixed: true
           severity: CRITICAL,HIGH
           vuln-type: os,library
-
+          trivyignores: admin/.trivyignore
       - name: Configure AWS credentials
         if: github.event_name == 'push'
         uses: aws-actions/configure-aws-credentials@v4

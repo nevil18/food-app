@@ -1,0 +1,4 @@
+# CVE-2026-93990 - libexpat XML injection (HIGH)
+# Fix 2.8.5-r0 exists but not yet published to Alpine 3.24 stable repo
+# Expires: 2026-10-10 - remove this line once Trivy stops flagging it
+CVE-2026-93990 exp:2026-10-10
