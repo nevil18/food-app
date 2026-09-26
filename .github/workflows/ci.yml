@@ -140,6 +140,7 @@ jobs:
         run: |
           docker build \
             --pull \
+            --no-cache \
             -t food-backend:${IMAGE_TAG} \
             backend/
       - name: Trivy scan backend
@@ -198,6 +199,7 @@ jobs:
         run: |
           docker build \
             --pull \
+            --no-cache \
             -t food-frontend:${IMAGE_TAG} \
             frontend/
       - name: Trivy scan frontend
@@ -256,6 +258,7 @@ jobs:
         run: |
           docker build \
             --pull \
+            --no-cache \
             -t food-admin:${IMAGE_TAG} \
             admin/
       - name: Trivy scan admin
