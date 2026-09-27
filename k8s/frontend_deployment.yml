@@ -13,11 +13,11 @@ spec:
       labels:
         app: frontend
       annotations:
-        ci.github.com/revision: 9e96ff115a7eee53e0b76aadfb5a7da5679d797c
+        ci.github.com/revision: 6b61a14cfcd7d21282e2cde12a122364cb3df538
     spec:
       containers:
         - name: frontend
-          image: 841702866815.dkr.ecr.ap-south-1.amazonaws.com/food-delivery-frontend:9e96ff115a7eee53e0b76aadfb5a7da5679d797c
+          image: 841702866815.dkr.ecr.ap-south-1.amazonaws.com/food-delivery-frontend:6b61a14cfcd7d21282e2cde12a122364cb3df538
           imagePullPolicy: Always
           ports:
             - containerPort: 80
