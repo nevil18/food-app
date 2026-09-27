@@ -31,12 +31,11 @@ permissions:
 
 env:
   AWS_REGION: ap-south-1
-
   ECR_BACKEND: food-delivery-backend
   ECR_FRONTEND: food-delivery-frontend
   ECR_ADMIN: food-delivery-admin
-
   IMAGE_TAG: latest
+
 
 jobs:
 
@@ -63,6 +62,8 @@ jobs:
           args: >
             -Dsonar.projectKey=food-app
             -Dsonar.organization=nevil18
+
+
   # =========================================================
   # OWASP DEPENDENCY CHECK
   # =========================================================
@@ -86,6 +87,7 @@ jobs:
             --failOnCVSS 7
             --enableRetired
             --disableAssembly
+
       - name: Upload OWASP report
         uses: actions/upload-artifact@v7
         if: always()
@@ -125,6 +127,8 @@ jobs:
               - 'frontend/**'
             admin:
               - 'admin/**'
+
+
   # =========================================================
   # BACKEND
   # =========================================================
@@ -150,6 +154,7 @@ jobs:
             --pull \
             -t food-backend:${IMAGE_TAG} \
             backend/
+
       - name: Trivy scan backend
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -178,16 +183,21 @@ jobs:
           docker tag \
             food-backend:latest \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_BACKEND }}:${{ github.sha }}
+
           docker tag \
             food-backend:latest \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_BACKEND }}:latest
+
       - name: Push backend image to ECR
         if: github.event_name == 'push'
         run: |
           docker push \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_BACKEND }}:${{ github.sha }}
+
           docker push \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_BACKEND }}:latest
+
+
   # =========================================================
   # FRONTEND
   # =========================================================
@@ -213,6 +223,7 @@ jobs:
             --pull \
             -t food-frontend:${IMAGE_TAG} \
             frontend/
+
       - name: Trivy scan frontend
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -241,16 +252,21 @@ jobs:
           docker tag \
             food-frontend:latest \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_FRONTEND }}:${{ github.sha }}
+
           docker tag \
             food-frontend:latest \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_FRONTEND }}:latest
+
       - name: Push frontend image to ECR
         if: github.event_name == 'push'
         run: |
           docker push \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_FRONTEND }}:${{ github.sha }}
+
           docker push \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_FRONTEND }}:latest
+
+
   # =========================================================
   # ADMIN
   # =========================================================
@@ -276,6 +292,7 @@ jobs:
             --pull \
             -t food-admin:${IMAGE_TAG} \
             admin/
+
       - name: Trivy scan admin
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -305,16 +322,21 @@ jobs:
           docker tag \
             food-admin:latest \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_ADMIN }}:${{ github.sha }}
+
           docker tag \
             food-admin:latest \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_ADMIN }}:latest
+
       - name: Push admin image to ECR
         if: github.event_name == 'push'
         run: |
           docker push \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_ADMIN }}:${{ github.sha }}
+
           docker push \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_ADMIN }}:latest
+
+
   # =========================================================
   # UPDATE KUBERNETES
   # =========================================================
@@ -350,6 +372,7 @@ jobs:
         needs.changes.outputs.frontend == 'true' ||
         needs.changes.outputs.admin == 'true'
       )
+
     permissions:
       contents: write
 
@@ -364,8 +387,11 @@ jobs:
           sudo wget -q \
             https://github.com/mikefarah/yq/releases/download/v4.53.6/yq_linux_amd64 \
             -O /usr/local/bin/yq
+
           sudo chmod +x /usr/local/bin/yq
+
           yq --version
+
       - name: Update Kubernetes image tags
         env:
           ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
@@ -376,48 +402,65 @@ jobs:
           GITHUB_SHA_VALUE: ${{ github.sha }}
 
         run: |
+
           if [ "$BACKEND_CHANGED" = "true" ]; then
             echo "Updating backend..."
+
             yq -i \
               '.spec.template.spec.containers[].image = strenv(ACCOUNT) + ".dkr.ecr." + strenv(REGION) + ".amazonaws.com/food-delivery-backend:" + strenv(GITHUB_SHA_VALUE)' \
               k8s/backend_deployment.yml
+
             yq -i \
               '.spec.template.metadata.annotations."ci.github.com/revision" = strenv(GITHUB_SHA_VALUE)' \
               k8s/backend_deployment.yml
           fi
+
+
           if [ "$FRONTEND_CHANGED" = "true" ]; then
             echo "Updating frontend..."
+
             yq -i \
               '.spec.template.spec.containers[].image = strenv(ACCOUNT) + ".dkr.ecr." + strenv(REGION) + ".amazonaws.com/food-delivery-frontend:" + strenv(GITHUB_SHA_VALUE)' \
               k8s/frontend_deployment.yml
+
             yq -i \
               '.spec.template.metadata.annotations."ci.github.com/revision" = strenv(GITHUB_SHA_VALUE)' \
               k8s/frontend_deployment.yml
           fi
+
+
           if [ "$ADMIN_CHANGED" = "true" ]; then
             echo "Updating admin..."
+
             yq -i \
               '.spec.template.spec.containers[].image = strenv(ACCOUNT) + ".dkr.ecr." + strenv(REGION) + ".amazonaws.com/food-delivery-admin:" + strenv(GITHUB_SHA_VALUE)' \
               k8s/admin_deployment.yml
+
             yq -i \
               '.spec.template.metadata.annotations."ci.github.com/revision" = strenv(GITHUB_SHA_VALUE)' \
               k8s/admin_deployment.yml
           fi
+
       - name: Show Kubernetes changes
         run: |
           git diff -- k8s/
+
       - name: Commit Kubernetes changes
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
+
           git add k8s/
+
           if git diff --staged --quiet; then
             echo "No Kubernetes manifest changes."
           else
             git commit \
               -m "ci: deploy latest images ${GITHUB_SHA}"
+
             git push
           fi
+
       - name: Email notification
         if: always()
         uses: dawidd6/action-send-mail@v4
