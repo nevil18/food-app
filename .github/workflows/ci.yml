@@ -6,12 +6,20 @@ on:
       - main
     paths-ignore:
       - 'k8s/**'
+      - 'setup-cluster.sh'
+      - 'argocd-setup.sh'
+      - 'argocd/**'
+      - 'monitoring/**'
 
   pull_request:
     branches:
       - main
     paths-ignore:
       - 'k8s/**'
+      - 'setup-cluster.sh'
+      - 'argocd-setup.sh'
+      - 'argocd/**'
+      - 'monitoring/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
