@@ -235,5 +235,6 @@ echo "================================================"
 echo ""
 echo "After DNS update run:"
 echo "  ~/web-dev/argocd-setup.sh"
+echo "  ~/web-dev/food_delivery/monitoring/monitoring-setup.sh"
 
 echo "================================================"

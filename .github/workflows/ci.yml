@@ -456,25 +456,49 @@ jobs:
             echo "No Kubernetes manifest changes."
           else
             git commit \
-              -m "ci: deploy latest images ${GITHUB_SHA}"
+              -m "ci: deploy images ${GITHUB_SHA}"
 
             git push
           fi
 
+
+  # =========================================================
+  # EMAIL NOTIFICATION
+  # =========================================================
+
+  notify:
+    name: Email Notification
+    runs-on: ubuntu-latest
+
+    needs:
+      - sonarqube
+      - owasp
+      - changes
+      - backend
+      - frontend
+      - admin
+      - update-k8s
+
+    if: always() && github.event_name == 'push'
+
+    steps:
       - name: Email notification
-        if: always()
         uses: dawidd6/action-send-mail@v4
         with:
           server_address: smtp.gmail.com
           server_port: 465
           username: ${{ secrets.GMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_APP_PASSWORD }}
-          subject: "${{ job.status == 'success' && '✅ Deploy Succeeded' || '❌ Deploy Failed' }} - food-app (${{ github.sha }})"
+          subject: "${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && '❌ Pipeline Failed' || '✅ Pipeline Succeeded' }} - food-app (${{ github.sha }})"
           to: nevilanghan2005@gmail.com
           from: food-app CI
           body: |
-            Deploy status: ${{ job.status }}
             Commit: ${{ github.sha }}
-            Branch: main
             Triggered by: ${{ github.actor }}
-            Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            SonarQube: ${{ needs.sonarqube.result }}
+            OWASP: ${{ needs.owasp.result }}
+            Backend: ${{ needs.backend.result }}
+            Frontend: ${{ needs.frontend.result }}
+            Admin: ${{ needs.admin.result }}
+            Update K8s: ${{ needs.update-k8s.result }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

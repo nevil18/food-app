@@ -82,30 +82,35 @@ argocd repo add https://github.com/nevil18/food-app.git \
 echo "✅ GitHub repo added"
 
 # ─── STEP 7: Create ArgoCD application ───────────────
+# Applied directly to the cluster (no dependency on the
+# load balancer / DNS). Automated sync deploys it.
 echo ""
 echo "=== Step 7: Creating ArgoCD application ==="
-argocd app create fooddelivery \
-  --repo https://github.com/nevil18/food-app.git \
-  --path k8s \
-  --dest-server https://kubernetes.default.svc \
-  --dest-namespace food \
-  --project food-delivery \
-  --sync-policy automated \
-  --auto-prune \
-  --self-heal \
-  --grpc-web \
-  --upsert
-echo "✅ Application created"
+kubectl apply -f - <<'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fooddelivery
+  namespace: argocd
+spec:
+  project: food-delivery
+  source:
+    repoURL: https://github.com/nevil18/food-app.git
+    path: k8s
+    targetRevision: HEAD
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: food
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+EOF
+echo "✅ Application created (automated sync will deploy it)"
 
-# ─── STEP 8: Sync application ─────────────────────────
+# ─── STEP 8: Verify ───────────────────────────────────
 echo ""
-echo "=== Step 8: Syncing application ==="
-argocd app sync fooddelivery --grpc-web
-echo "✅ Application synced"
-
-# ─── STEP 9: Verify ───────────────────────────────────
-echo ""
-echo "=== Step 9: Verifying ==="
+echo "=== Step 8: Verifying ==="
 argocd app list --grpc-web
 
 echo ""
