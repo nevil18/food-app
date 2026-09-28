@@ -56,12 +56,28 @@ echo "✅ Namespace ready"
 
 
 # ─── STEP 4: Install Prometheus + Grafana ──────────────
+# Slimmed down for a small single node:
+#  - Alertmanager disabled
+#  - Operator admission webhooks disabled (removes hook jobs)
+#  - Short Prometheus retention + explicit resource requests
+#  - Relaxed probes so a busy node doesn't kill pods
 echo ""
 echo "=== Step 4: Installing Prometheus + Grafana ==="
 
 helm upgrade --install stable \
     prometheus-community/kube-prometheus-stack \
     -n prometheus \
+    --set alertmanager.enabled=false \
+    --set prometheusOperator.admissionWebhooks.enabled=false \
+    --set prometheus.prometheusSpec.retention=3d \
+    --set prometheus.prometheusSpec.resources.requests.cpu=100m \
+    --set prometheus.prometheusSpec.resources.requests.memory=400Mi \
+    --set kube-state-metrics.resources.requests.cpu=50m \
+    --set kube-state-metrics.resources.requests.memory=64Mi \
+    --set kube-state-metrics.livenessProbe.timeoutSeconds=10 \
+    --set kube-state-metrics.livenessProbe.failureThreshold=5 \
+    --set kube-state-metrics.readinessProbe.timeoutSeconds=10 \
+    --set kube-state-metrics.readinessProbe.failureThreshold=5 \
     --set grafana.livenessProbe.initialDelaySeconds=120 \
     --set grafana.livenessProbe.failureThreshold=15 \
     --set grafana.readinessProbe.initialDelaySeconds=90 \
