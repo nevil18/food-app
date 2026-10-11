@@ -1,32 +1,22 @@
-# stage 1
 FROM node:22-alpine
 
 WORKDIR /app
 
-# Update npm to patched version
-RUN npm install -g npm@11.19.1	 \
-    && node --version \
-    && npm --version
+# Patch OS packages
+RUN apk upgrade --no-cache
 
-# Create non-root group and user
+# Create non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# Copy dependency files
 COPY package*.json ./
-
-# Install production dependencies only
 RUN npm ci --omit=dev
 
-# Copy source code
 COPY . .
-
-# Change ownership to non-root user
 RUN chown -R appuser:appgroup /app
 
-# Switch to non-root user
+# npm is not needed at runtime, so remove it (and its vulnerable bundled packages)
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+
 USER appuser
-
 EXPOSE 4000
-
 CMD ["node", "index.js"]
-
