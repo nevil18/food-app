@@ -1,0 +1,292 @@
+---
+# Replaces setup-cluster.sh (steps 1-14).
+# Run once after the EKS cluster exists. Prints the Load Balancer DNS at the end.
+- name: Cluster setup
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars.yml
+
+  vars:
+    lb_scheme_annotation: service.beta.kubernetes.io/aws-load-balancer-scheme
+
+    remote_manifests:
+      - name: metrics-server
+        url: https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+      - name: ingress-nginx
+        url: https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.0/deploy/static/provider/aws/deploy.yaml
+      - name: cert-manager
+        url: https://github.com/cert-manager/cert-manager/releases/download/v1.14.0/cert-manager.yaml
+      - name: argocd
+        url: https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+    app_manifests:
+      - namespace.yml
+      - backend_secret.yml
+      - backend_deployment.yml
+      - frontend_deployment.yml
+      - admin_deployment.yml
+      - backend_service.yml
+      - frontend_service.yml
+      - admin_service.yml
+
+    hpa_manifests:
+      - backend_hpa.yml
+      - frontend_hpa.yml
+      - admin_hpa.yml
+
+  tasks:
+    # ─── Step 1: Connect kubectl ───────────────────────────
+    - name: Update kubeconfig
+      ansible.builtin.command: >
+        aws eks update-kubeconfig --region {{ aws_region }} --name {{ cluster_name }}
+      changed_when: false
+
+    - name: Verify cluster connectivity
+      kubernetes.core.k8s_cluster_info:
+      register: cluster_info
+
+    # ─── Download upstream manifests ───────────────────────
+    - name: Download upstream manifests
+      ansible.builtin.get_url:
+        url: "{{ item.url }}"
+        dest: "/tmp/{{ item.name }}.yaml"
+        mode: "0644"
+        force: true
+      loop: "{{ remote_manifests }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # ─── Step 2: Metrics Server ────────────────────────────
+    - name: Install Metrics Server
+      kubernetes.core.k8s:
+        state: present
+        src: /tmp/metrics-server.yaml
+        server_side_apply:
+          field_manager: ansible
+          force_conflicts: true
+
+    # ─── Step 3: Nginx Ingress Controller ──────────────────
+    - name: Install Nginx Ingress Controller
+      kubernetes.core.k8s:
+        state: present
+        src: /tmp/ingress-nginx.yaml
+        server_side_apply:
+          field_manager: ansible
+          force_conflicts: true
+
+    # ─── Step 4: Internet-facing Load Balancer ─────────────
+    # The original script deletes the service every run. Here it is only
+    # deleted when it is not already internet-facing, so a re-run does not
+    # replace the NLB (which would change its DNS name).
+    - name: Look up existing ingress-nginx service
+      kubernetes.core.k8s_info:
+        kind: Service
+        name: ingress-nginx-controller
+        namespace: ingress-nginx
+      register: lb_svc
+
+    - name: Delete service if it is not internet-facing yet
+      kubernetes.core.k8s:
+        state: absent
+        kind: Service
+        name: ingress-nginx-controller
+        namespace: ingress-nginx
+        wait: true
+      when:
+        - lb_svc.resources | length > 0
+        - (lb_svc.resources[0].metadata.annotations | default({})).get(lb_scheme_annotation, '') != 'internet-facing'
+
+    - name: Create internet-facing NLB service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: ingress-nginx-controller
+            namespace: ingress-nginx
+            annotations:
+              service.beta.kubernetes.io/aws-load-balancer-type: nlb
+              service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+              service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+              service.beta.kubernetes.io/aws-load-balancer-backend-protocol: tcp
+          spec:
+            type: LoadBalancer
+            externalTrafficPolicy: Local
+            selector:
+              app.kubernetes.io/component: controller
+              app.kubernetes.io/instance: ingress-nginx
+              app.kubernetes.io/name: ingress-nginx
+            ports:
+              - name: http
+                port: 80
+                targetPort: http
+                protocol: TCP
+              - name: https
+                port: 443
+                targetPort: https
+                protocol: TCP
+
+    # ─── Step 5: Wait for Ingress Controller ───────────────
+    - name: Wait for Ingress Controller pod
+      ansible.builtin.command: >
+        kubectl wait --namespace ingress-nginx --for=condition=ready pod
+        --selector=app.kubernetes.io/component=controller --timeout=180s
+      register: wait_ingress
+      retries: 3
+      delay: 10
+      until: wait_ingress.rc == 0
+      changed_when: false
+
+    # ─── Step 6: cert-manager ──────────────────────────────
+    - name: Install cert-manager
+      kubernetes.core.k8s:
+        state: present
+        src: /tmp/cert-manager.yaml
+        server_side_apply:
+          field_manager: ansible
+          force_conflicts: true
+
+    - name: Wait for cert-manager pods
+      ansible.builtin.command: >
+        kubectl wait --namespace cert-manager --for=condition=ready pod
+        --selector=app.kubernetes.io/instance=cert-manager --timeout=120s
+      register: wait_cm
+      retries: 3
+      delay: 10
+      until: wait_cm.rc == 0
+      changed_when: false
+
+    # ─── Step 7: ArgoCD ────────────────────────────────────
+    - name: Create argocd namespace
+      kubernetes.core.k8s:
+        state: present
+        kind: Namespace
+        name: argocd
+
+    - name: Install ArgoCD (server-side apply, as in the script)
+      kubernetes.core.k8s:
+        state: present
+        namespace: argocd
+        src: /tmp/argocd.yaml
+        server_side_apply:
+          field_manager: ansible
+          force_conflicts: true
+
+    - name: Wait for argocd-server
+      ansible.builtin.command: >
+        kubectl wait --namespace argocd --for=condition=ready pod
+        --selector=app.kubernetes.io/name=argocd-server --timeout=180s
+      register: wait_argocd
+      retries: 3
+      delay: 10
+      until: wait_argocd.rc == 0
+      changed_when: false
+
+    # ─── Step 8: App manifests ─────────────────────────────
+    - name: Apply Kubernetes manifests
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        src: "{{ project_dir }}/k8s/{{ item }}"
+      loop: "{{ app_manifests }}"
+
+    # ─── Step 9: HPA ───────────────────────────────────────
+    - name: Apply HPA manifests
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        src: "{{ project_dir }}/k8s/{{ item }}"
+      loop: "{{ hpa_manifests }}"
+
+    # ─── Step 10: ClusterIssuer ────────────────────────────
+    # cert-manager's webhook can take a moment to accept requests, so retry.
+    - name: Apply ClusterIssuer
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        src: "{{ project_dir }}/k8s/cert_manager.yml"
+      register: issuer
+      retries: 6
+      delay: 15
+      until: issuer is succeeded
+
+    # ─── Step 11: Ingress ──────────────────────────────────
+    - name: Remove ingress-nginx admission webhook
+      kubernetes.core.k8s:
+        state: absent
+        api_version: admissionregistration.k8s.io/v1
+        kind: ValidatingWebhookConfiguration
+        name: ingress-nginx-admission
+
+    - name: Apply app ingress
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        src: "{{ project_dir }}/k8s/ingress.yml"
+
+    - name: Apply ArgoCD ingress
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        src: "{{ project_dir }}/argocd/argocd-ingress.yml"
+
+    # ─── Step 12: Load Balancer DNS ────────────────────────
+    - name: Wait for Load Balancer hostname
+      kubernetes.core.k8s_info:
+        kind: Service
+        name: ingress-nginx-controller
+        namespace: ingress-nginx
+      register: lb
+      retries: 30
+      delay: 10
+      until:
+        - lb.resources | length > 0
+        - (lb.resources[0].status.loadBalancer.ingress | default([])) | length > 0
+        - lb.resources[0].status.loadBalancer.ingress[0].hostname is defined
+
+    - name: Set LB DNS fact
+      ansible.builtin.set_fact:
+        lb_dns: "{{ lb.resources[0].status.loadBalancer.ingress[0].hostname }}"
+
+    # ─── Step 13: Restart backend ──────────────────────────
+    - name: Restart backend deployment
+      ansible.builtin.command: >
+        kubectl rollout restart deployment backend-deployment -n {{ app_namespace }}
+      changed_when: true
+
+    # ─── Step 14: Verify ───────────────────────────────────
+    - name: Verify resources
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - kubectl get pods -n {{ app_namespace }}
+        - kubectl get pods -n argocd
+        - kubectl get hpa -n {{ app_namespace }}
+        - kubectl get ingress -n {{ app_namespace }}
+        - kubectl get ingress -n argocd
+        - kubectl get certificate -n {{ app_namespace }}
+        - kubectl get certificate -n argocd
+      register: verify
+      changed_when: false
+      failed_when: false
+
+    - name: Show verification output
+      ansible.builtin.debug:
+        msg: "{{ item.stdout_lines + item.stderr_lines }}"
+      loop: "{{ verify.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    # ─── Final ─────────────────────────────────────────────
+    - name: Next steps
+      ansible.builtin.debug:
+        msg:
+          - "Cluster setup complete."
+          - "Load Balancer DNS: {{ lb_dns }}"
+          - "Now update DNS in Namecheap (nevilanghan.me > Advanced DNS):"
+          - "  CNAME  food    -> {{ lb_dns }}"
+          - "  CNAME  argocd  -> {{ lb_dns }}"
+          - "Wait until DNS resolves, then run:"
+          - "  ansible-playbook 02-argocd-setup.yml"
+          - "  ansible-playbook 03-monitoring.yml"

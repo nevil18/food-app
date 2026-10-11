@@ -1,0 +1,222 @@
+---
+# Replaces monitoring/monitoring-setup.sh (Prometheus + Grafana).
+# Does not depend on DNS, so it can run any time after cluster_setup.yml.
+- name: Monitoring setup (Prometheus + Grafana)
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars.yml
+
+  vars:
+    # Empty = schedule monitoring pods on any node.
+    # If you create the separate "monitoring" NodePool, set this to:
+    #   monitoring_node_selector: { workload: monitoring }
+    monitoring_node_selector: {}
+
+  tasks:
+    # ─── Step 1: Helm ──────────────────────────────────────
+    - name: Check if helm is installed
+      ansible.builtin.command: which helm
+      register: helm_check
+      changed_when: false
+      failed_when: false
+
+    - name: Download Helm install script
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+        dest: /tmp/get_helm.sh
+        mode: "0700"
+      when: helm_check.rc != 0
+
+    - name: Install Helm
+      ansible.builtin.command: /tmp/get_helm.sh
+      become: true
+      when: helm_check.rc != 0
+
+    # ─── Step 2: Helm repo ─────────────────────────────────
+    - name: Add prometheus-community repo
+      kubernetes.core.helm_repository:
+        name: prometheus-community
+        repo_url: https://prometheus-community.github.io/helm-charts
+
+    # ─── Steps 3 and 4: Namespace + chart ──────────────────
+    # Same settings as the --set flags in the original script, plus:
+    #  - prometheusOperator.tls disabled (the admission secret is never
+    #    created when the webhooks are off, so the operator got stuck)
+    #  - a Grafana resource request, so the scheduler sees real demand
+    #  - optional nodeSelector (see monitoring_node_selector above)
+    - name: Install kube-prometheus-stack
+      kubernetes.core.helm:
+        name: stable
+        chart_ref: prometheus-community/kube-prometheus-stack
+        release_namespace: prometheus
+        create_namespace: true
+        update_repo_cache: true
+        wait: false
+        values:
+          alertmanager:
+            enabled: false
+          prometheusOperator:
+            nodeSelector: "{{ monitoring_node_selector }}"
+            admissionWebhooks:
+              enabled: false
+            tls:
+              enabled: false
+            livenessProbe:
+              timeoutSeconds: 10
+              failureThreshold: 5
+            readinessProbe:
+              timeoutSeconds: 10
+              failureThreshold: 5
+          prometheus:
+            prometheusSpec:
+              nodeSelector: "{{ monitoring_node_selector }}"
+              retention: 3d
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 400Mi
+          kube-state-metrics:
+            nodeSelector: "{{ monitoring_node_selector }}"
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+            livenessProbe:
+              timeoutSeconds: 10
+              failureThreshold: 5
+            readinessProbe:
+              timeoutSeconds: 10
+              failureThreshold: 5
+          grafana:
+            nodeSelector: "{{ monitoring_node_selector }}"
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+            livenessProbe:
+              initialDelaySeconds: 120
+              failureThreshold: 15
+            readinessProbe:
+              initialDelaySeconds: 90
+              failureThreshold: 15
+          prometheus-node-exporter:
+            livenessProbe:
+              timeoutSeconds: 10
+              failureThreshold: 5
+            readinessProbe:
+              timeoutSeconds: 10
+              failureThreshold: 5
+
+    # ─── Step 5: Wait for operator, Prometheus and Grafana ──
+    - name: Wait for Prometheus operator
+      ansible.builtin.command: >
+        kubectl wait --namespace prometheus --for=condition=ready pod
+        --selector=app=kube-prometheus-stack-operator --timeout=180s
+      register: wait_operator
+      retries: 3
+      delay: 10
+      until: wait_operator.rc == 0
+      changed_when: false
+
+    # The Prometheus pod is created by the operator, so it appears a bit later.
+    - name: Wait for Prometheus pod
+      ansible.builtin.command: >
+        kubectl wait --namespace prometheus --for=condition=ready pod
+        --selector=app.kubernetes.io/name=prometheus --timeout=180s
+      register: wait_prom
+      retries: 6
+      delay: 15
+      until: wait_prom.rc == 0
+      changed_when: false
+
+    # rollout status waits for the NEW Grafana pod only. (kubectl wait on a
+    # label selector also waits for an old pod that may be stuck terminating.)
+    - name: Wait for Grafana rollout
+      ansible.builtin.command: >
+        kubectl rollout status deployment/stable-grafana
+        --namespace prometheus --timeout=300s
+      register: wait_grafana
+      changed_when: false
+      failed_when: false
+
+    - name: Warn if Grafana is not ready yet
+      ansible.builtin.debug:
+        msg: "Grafana is not ready yet. Check: kubectl get pods -n prometheus"
+      when: wait_grafana.rc != 0
+
+    # ─── Step 6: Verify ────────────────────────────────────
+    - name: List monitoring pods and services
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - kubectl get pods -n prometheus
+        - kubectl get svc -n prometheus
+      register: mon
+      changed_when: false
+
+    - name: Show monitoring status
+      ansible.builtin.debug:
+        msg: "{{ item.stdout_lines }}"
+      loop: "{{ mon.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    # ─── Step 7: Grafana password ──────────────────────────
+    - name: Read Grafana admin secret
+      kubernetes.core.k8s_info:
+        kind: Secret
+        name: stable-grafana
+        namespace: prometheus
+      register: grafana_secret
+
+    - name: Decode Grafana password
+      ansible.builtin.set_fact:
+        grafana_password: "{{ grafana_secret.resources[0].data['admin-password'] | b64decode }}"
+      when: grafana_secret.resources | length > 0
+      no_log: true
+
+    # ─── Steps 8 and 9: Port-forwards (restart automatically) ──
+    # pgrep runs as its own command (not inside a shell string), otherwise
+    # it would match its own command line and always report "running".
+    - name: Check Grafana port-forward
+      ansible.builtin.command: pgrep -f "kubectl port-forward.*stable-grafana"
+      register: pf_grafana
+      changed_when: false
+      failed_when: false
+
+    - name: Start Grafana port-forward
+      ansible.builtin.shell: |
+        setsid nohup bash -c 'while true; do kubectl port-forward svc/stable-grafana -n prometheus 3000:80 --address 0.0.0.0; sleep 2; done' \
+          > /tmp/grafana-port-forward.log 2>&1 < /dev/null &
+      when: pf_grafana.rc != 0
+
+    - name: Check Prometheus port-forward
+      ansible.builtin.command: pgrep -f "kubectl port-forward.*stable-kube-prometheus-sta-prometheus"
+      register: pf_prom
+      changed_when: false
+      failed_when: false
+
+    - name: Start Prometheus port-forward
+      ansible.builtin.shell: |
+        setsid nohup bash -c 'while true; do kubectl port-forward svc/stable-kube-prometheus-sta-prometheus -n prometheus 9090:9090 --address 0.0.0.0; sleep 2; done' \
+          > /tmp/prometheus-port-forward.log 2>&1 < /dev/null &
+      when: pf_prom.rc != 0
+
+    # ─── Step 10: Public IP of THIS server (the master node) ──
+    # The port-forwards listen on this server, so this is the address
+    # you open in the browser. The pods themselves only have private IPs.
+    - name: Get server public IP
+      ansible.builtin.command: curl -s --max-time 5 ifconfig.me
+      register: public_ip
+      changed_when: false
+      failed_when: false
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "Grafana    : http://{{ public_ip.stdout | default('<MASTER_PUBLIC_IP>', true) }}:3000"
+          - "Username   : admin"
+          - "Password   : {{ grafana_password | default('(not found)') }}"
+          - "Prometheus : http://{{ public_ip.stdout | default('<MASTER_PUBLIC_IP>', true) }}:9090"
+          - "Allow ports 3000 and 9090 in the server Security Group (your IP only)."
+          - "Port-forward logs: /tmp/grafana-port-forward.log, /tmp/prometheus-port-forward.log"

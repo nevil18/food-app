@@ -1,0 +1,111 @@
+---
+# Replaces argocd-setup.sh. Run AFTER 01-cluster-setup.yml and AFTER the
+# Namecheap CNAME records point to the Load Balancer.
+- name: ArgoCD setup
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars.yml
+
+  tasks:
+    # ─── Step 1: Verify DNS ────────────────────────────────
+    # Needs nslookup:  sudo apt install -y dnsutils
+    - name: Verify DNS for {{ argocd_domain }}
+      ansible.builtin.command: nslookup {{ argocd_domain }} 8.8.8.8
+      register: dns
+      changed_when: false
+      failed_when: >
+        dns.rc != 0 or
+        (dns.stdout_lines | select('match', '^Address') | list | length) < 2
+
+    # ─── Step 3: Get ArgoCD password ───────────────────────
+    - name: Read ArgoCD initial admin secret
+      kubernetes.core.k8s_info:
+        kind: Secret
+        name: argocd-initial-admin-secret
+        namespace: argocd
+      register: argocd_secret
+      failed_when: argocd_secret.resources | length == 0
+
+    - name: Decode ArgoCD password
+      ansible.builtin.set_fact:
+        argocd_password: "{{ argocd_secret.resources[0].data.password | b64decode }}"
+      no_log: true
+
+    # ─── Step 5 and 6: Project and repo (declarative) ──────
+    # Same result as `argocd proj create/add-source/add-destination/
+    # allow-cluster-resource`, applied straight to the cluster.
+    - name: Create ArgoCD project
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: argoproj.io/v1alpha1
+          kind: AppProject
+          metadata:
+            name: food-delivery
+            namespace: argocd
+          spec:
+            description: Food Delivery App
+            sourceRepos:
+              - "{{ github_repo }}"
+            destinations:
+              - server: https://kubernetes.default.svc
+                namespace: "{{ app_namespace }}"
+            clusterResourceWhitelist:
+              - group: "*"
+                kind: "*"
+
+    # ─── Step 7: Application ───────────────────────────────
+    - name: Create ArgoCD application
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: argoproj.io/v1alpha1
+          kind: Application
+          metadata:
+            name: fooddelivery
+            namespace: argocd
+          spec:
+            project: food-delivery
+            source:
+              repoURL: "{{ github_repo }}"
+              path: k8s
+              targetRevision: HEAD
+            destination:
+              server: https://kubernetes.default.svc
+              namespace: "{{ app_namespace }}"
+            syncPolicy:
+              automated:
+                prune: true
+                selfHeal: true
+
+    # ─── Step 2: ArgoCD CLI ────────────────────────────────
+    - name: Install ArgoCD CLI
+      ansible.builtin.get_url:
+        url: https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+        dest: /usr/local/bin/argocd
+        mode: "0755"
+        force: false
+      become: true
+
+    # ─── Step 4: Login ─────────────────────────────────────
+    - name: Login to ArgoCD
+      ansible.builtin.command: >
+        argocd login {{ argocd_domain }} --username admin
+        --password {{ argocd_password }} --insecure --grpc-web
+      changed_when: false
+      no_log: true
+
+    # ─── Step 8: Verify ────────────────────────────────────
+    - name: List ArgoCD applications
+      ansible.builtin.command: argocd app list --grpc-web
+      register: app_list
+      changed_when: false
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "{{ app_list.stdout_lines }}"
+          - "ArgoCD URL : https://{{ argocd_domain }}"
+          - "Username   : admin"
+          - "Password   : {{ argocd_password }}"

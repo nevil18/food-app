@@ -1,0 +1,7 @@
+aws_region: ap-south-1
+cluster_name: food-delivery-eks
+project_dir: "{{ lookup('env', 'HOME') }}/web-dev/food_delivery"
+app_namespace: food
+github_repo: https://github.com/nevil18/food-app.git
+argocd_domain: argocd.nevilanghan.me
+app_domain: food.nevilanghan.me
