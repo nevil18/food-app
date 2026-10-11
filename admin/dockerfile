@@ -7,7 +7,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# stage 2:serve
+# stage 2:Serve
 
 FROM nginx:alpine AS production
 RUN apk update && apk upgrade --no-cache
