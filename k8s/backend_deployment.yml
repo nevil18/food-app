@@ -13,11 +13,11 @@ spec:
       labels:
         app: backend
       annotations:
-        ci.github.com/revision: 3145f7c0246ddd40712e2b964b2dabfb697ee1dd
+        ci.github.com/revision: f9fbba96e0d227ea9682df115b67c6ca3e7ca4ab
     spec:
       containers:
         - name: backend
-          image: 841702866815.dkr.ecr.ap-south-1.amazonaws.com/food-delivery-backend:3145f7c0246ddd40712e2b964b2dabfb697ee1dd
+          image: 841702866815.dkr.ecr.ap-south-1.amazonaws.com/food-delivery-backend:f9fbba96e0d227ea9682df115b67c6ca3e7ca4ab
           imagePullPolicy: Always
           ports:
             - containerPort: 4000
