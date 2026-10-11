@@ -6,20 +6,18 @@ on:
       - main
     paths-ignore:
       - 'k8s/**'
-      - 'setup-cluster.sh'
-      - 'argocd-setup.sh'
+      - 'eks-setup/**'
+      - 'terraform/**'
       - 'argocd/**'
-      - 'monitoring/**'
 
   pull_request:
     branches:
       - main
     paths-ignore:
       - 'k8s/**'
-      - 'setup-cluster.sh'
-      - 'argocd-setup.sh'
+      - 'eks-setup/**'
+      - 'terraform/**'
       - 'argocd/**'
-      - 'monitoring/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
