@@ -152,13 +152,15 @@ jobs:
         run: |
           docker build \
             --pull \
+            --no-cache \
+            -f backend/dockerfile \
             -t food-backend:${IMAGE_TAG} \
             backend/
 
       - name: Trivy scan backend
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: food-backend:latest
+          image-ref: food-backend:${{ env.IMAGE_TAG }}
           format: table
           exit-code: '1'
           ignore-unfixed: true
@@ -221,13 +223,15 @@ jobs:
         run: |
           docker build \
             --pull \
+            --no-cache \
+            -f frontend/dockerfile \
             -t food-frontend:${IMAGE_TAG} \
             frontend/
 
       - name: Trivy scan frontend
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: food-frontend:latest
+          image-ref: food-frontend:${{ env.IMAGE_TAG }}
           format: table
           exit-code: '1'
           ignore-unfixed: true
@@ -290,13 +294,15 @@ jobs:
         run: |
           docker build \
             --pull \
+            --no-cache \
+            -f admin/dockerfile \
             -t food-admin:${IMAGE_TAG} \
             admin/
 
       - name: Trivy scan admin
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: food-admin:latest
+          image-ref: food-admin:${{ env.IMAGE_TAG }}
           format: table
           exit-code: '1'
           ignore-unfixed: true
