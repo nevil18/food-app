@@ -13,11 +13,11 @@ spec:
       labels:
         app: admin
       annotations:
-        ci.github.com/revision: 15604e1a43bc55770b1bada405f7f507c08e9583
+        ci.github.com/revision: 01ad7669ffb537db9bb8b39e3619fae525bdec48
     spec:
       containers:
         - name: admin
-          image: 841702866815.dkr.ecr.ap-south-1.amazonaws.com/food-delivery-admin:15604e1a43bc55770b1bada405f7f507c08e9583
+          image: 841702866815.dkr.ecr.ap-south-1.amazonaws.com/food-delivery-admin:01ad7669ffb537db9bb8b39e3619fae525bdec48
           imagePullPolicy: Always
           ports:
             - containerPort: 80
