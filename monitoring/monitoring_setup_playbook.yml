@@ -1,11 +1,13 @@
 ---
 # Replaces monitoring/monitoring-setup.sh (Prometheus + Grafana).
-# Does not depend on DNS, so it can run any time after cluster_setup.yml.
+# Does not depend on DNS to install, so it can run any time after cluster_setup.yml.
+# The HTTPS certificate for grafana/prometheus only issues once the DNS CNAMEs
+# point to the ingress-nginx load balancer.
 - name: Monitoring setup (Prometheus + Grafana)
   hosts: localhost
   gather_facts: false
   vars_files:
-    - vars.yml
+    - ../eks-setup/vars.yml
 
   vars:
     # Empty = schedule monitoring pods on any node.
@@ -40,15 +42,20 @@
         repo_url: https://prometheus-community.github.io/helm-charts
 
     # ─── Steps 3 and 4: Namespace + chart ──────────────────
-    # Same settings as the --set flags in the original script, plus:
-    #  - prometheusOperator.tls disabled (the admission secret is never
-    #    created when the webhooks are off, so the operator got stuck)
-    #  - a Grafana resource request, so the scheduler sees real demand
-    #  - optional nodeSelector (see monitoring_node_selector above)
+    # Same settings as before, plus (added after the Oct 22 Grafana 503 incident):
+    #  - requests/limits on every monitoring pod, so none of them is BestEffort
+    #    and the kubelet/scheduler can protect them when the node is busy
+    #  - karpenter.sh/do-not-disrupt on Grafana and Prometheus, so Auto Mode
+    #    consolidation does not try to replace the node under them
+    #    (their data is on emptyDir and is lost when the pod moves)
+    # Probe settings are unchanged on purpose until the root cause is proven.
     - name: Install kube-prometheus-stack
       kubernetes.core.helm:
         name: stable
         chart_ref: prometheus-community/kube-prometheus-stack
+        # Pinned so a re-run does not silently upgrade the chart.
+        # Check what you run with: helm -n prometheus list
+        chart_version: "92.11.0"
         release_namespace: prometheus
         create_namespace: true
         update_repo_cache: true
@@ -62,6 +69,12 @@
               enabled: false
             tls:
               enabled: false
+            resources:
+              requests:
+                cpu: 50m
+                memory: 96Mi
+              limits:
+                memory: 256Mi
             livenessProbe:
               timeoutSeconds: 10
               failureThreshold: 5
@@ -73,15 +86,22 @@
               nodeSelector: "{{ monitoring_node_selector }}"
               retention: 3d
               resources:
+                # No memory limit on purpose: real usage has not been measured
+                # yet and an OOM kill here would be worse than the problem.
                 requests:
-                  cpu: 100m
-                  memory: 400Mi
+                  cpu: 200m
+                  memory: 600Mi
+              podMetadata:
+                annotations:
+                  karpenter.sh/do-not-disrupt: "true"
           kube-state-metrics:
             nodeSelector: "{{ monitoring_node_selector }}"
             resources:
               requests:
                 cpu: 50m
                 memory: 64Mi
+              limits:
+                memory: 256Mi
             livenessProbe:
               timeoutSeconds: 10
               failureThreshold: 5
@@ -92,8 +112,19 @@
             nodeSelector: "{{ monitoring_node_selector }}"
             resources:
               requests:
-                cpu: 100m
-                memory: 256Mi
+                cpu: 200m
+                memory: 384Mi
+              limits:
+                memory: 768Mi
+            podAnnotations:
+              karpenter.sh/do-not-disrupt: "true"
+            sidecar:
+              resources:
+                requests:
+                  cpu: 20m
+                  memory: 48Mi
+                limits:
+                  memory: 192Mi
             livenessProbe:
               initialDelaySeconds: 120
               failureThreshold: 15
@@ -101,6 +132,12 @@
               initialDelaySeconds: 90
               failureThreshold: 15
           prometheus-node-exporter:
+            resources:
+              requests:
+                cpu: 25m
+                memory: 32Mi
+              limits:
+                memory: 128Mi
             livenessProbe:
               timeoutSeconds: 10
               failureThreshold: 5
@@ -145,12 +182,39 @@
         msg: "Grafana is not ready yet. Check: kubectl get pods -n prometheus"
       when: wait_grafana.rc != 0
 
+    # ─── Step 5b: Public HTTPS ingress ─────────────────────
+    # cert-manager sees the cluster-issuer annotation and issues "monitoring-tls".
+    # Without this task the ingress controller serves its fake certificate
+    # (ERR_CERT_AUTHORITY_INVALID in the browser).
+    - name: Apply monitoring ingress (TLS)
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ playbook_dir }}/monitoring-ingress.yml"
+
+    # Non-fatal: the certificate needs DNS to point at the load balancer first.
+    - name: Wait for monitoring TLS certificate
+      ansible.builtin.command: >
+        kubectl wait --namespace prometheus --for=condition=Ready
+        certificate/monitoring-tls --timeout=180s
+      register: wait_cert
+      changed_when: false
+      failed_when: false
+
+    - name: Warn if certificate is not ready yet
+      ansible.builtin.debug:
+        msg:
+          - "monitoring-tls is not Ready yet. Most likely DNS: grafana/prometheus CNAMEs must point to the ingress-nginx load balancer."
+          - "Check: kubectl -n ingress-nginx get svc ; nslookup grafana.nevilanghan.me 8.8.8.8"
+          - "Debug: kubectl -n prometheus describe certificate monitoring-tls ; kubectl -n prometheus describe challenge"
+      when: wait_cert.rc != 0
+
     # ─── Step 6: Verify ────────────────────────────────────
     - name: List monitoring pods and services
       ansible.builtin.command: "{{ item }}"
       loop:
         - kubectl get pods -n prometheus
         - kubectl get svc -n prometheus
+        - kubectl get ingress,certificate -n prometheus
       register: mon
       changed_when: false
 
@@ -168,12 +232,14 @@
         name: stable-grafana
         namespace: prometheus
       register: grafana_secret
+      tags: [show_summary]
 
     - name: Decode Grafana password
       ansible.builtin.set_fact:
         grafana_password: "{{ grafana_secret.resources[0].data['admin-password'] | b64decode }}"
       when: grafana_secret.resources | length > 0
       no_log: true
+      tags: [show_summary]
 
     # ─── Steps 8 and 9: Port-forwards (restart automatically) ──
     # pgrep runs as its own command (not inside a shell string), otherwise
@@ -210,13 +276,17 @@
       register: public_ip
       changed_when: false
       failed_when: false
+      tags: [show_summary]
 
     - name: Summary
       ansible.builtin.debug:
         msg:
-          - "Grafana    : http://{{ public_ip.stdout | default('<MASTER_PUBLIC_IP>', true) }}:3000"
+          - "Grafana (HTTPS)    : https://grafana.nevilanghan.me"
+          - "Prometheus (HTTPS) : https://prometheus.nevilanghan.me  (no login, consider removing or protecting it)"
+          - "Grafana (forward)  : http://{{ public_ip.stdout | default('<MASTER_PUBLIC_IP>', true) }}:3000"
+          - "Prometheus (forward): http://{{ public_ip.stdout | default('<MASTER_PUBLIC_IP>', true) }}:9090"
           - "Username   : admin"
           - "Password   : {{ grafana_password | default('(not found)') }}"
-          - "Prometheus : http://{{ public_ip.stdout | default('<MASTER_PUBLIC_IP>', true) }}:9090"
           - "Allow ports 3000 and 9090 in the server Security Group (your IP only)."
           - "Port-forward logs: /tmp/grafana-port-forward.log, /tmp/prometheus-port-forward.log"
+      tags: [show_summary]

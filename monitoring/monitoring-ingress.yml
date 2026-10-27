@@ -1,0 +1,42 @@
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: monitoring-ingress
+  namespace: prometheus
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+spec:
+  ingressClassName: nginx
+
+  tls:
+    - hosts:
+        - grafana.nevilanghan.me
+        - prometheus.nevilanghan.me
+      secretName: monitoring-tls
+
+  rules:
+    - host: grafana.nevilanghan.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: stable-grafana
+                port:
+                  number: 80
+
+    - host: prometheus.nevilanghan.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: stable-kube-prometheus-sta-prometheus
+                port:
+                  number: 9090
+
